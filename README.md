@@ -33,6 +33,7 @@ hotkey API, which requires no extra permissions.
 ## Usage
 
 - **Ctrl+Shift+5** — capture a region (native crosshair UI; Esc cancels)
+- **Ctrl+Shift+6** — OCR a region straight to the clipboard
 - Annotate with the floating toolbar: arrow, line, rectangle, ellipse, text, pen,
   highlighter, **counter badges** (numbered steps), eraser, **color picker**
   (eyedropper — click the screenshot to use any color), blur, **spotlight**
@@ -77,14 +78,35 @@ One-time setup in **Settings → Google Drive**:
 
 The app only ever sees files it created itself (`drive.file` scope).
 
+## On-device AI
+
+Everything here runs on your Mac — no network, no accounts, no API keys.
+
+- **Ctrl+Shift+6** — capture a region and copy its text straight to the clipboard
+  (Apple Vision OCR), with a small confirmation toast
+- In the editor, the **✨ menu**: **Redact faces**, **Redact personal info**
+  (emails, phone numbers, credit-card numbers, API keys, person names — found
+  with Vision OCR plus on-device named-entity recognition), **Copy text from
+  image**
+- **QR codes** in a screenshot are detected automatically and shown as chips
+  with Open/Copy actions (toggle in Settings)
+- **Translate text…** (macOS 15+) — OCRs the screenshot and translates it
+  on-device; target language in Settings
+- **Apple Intelligence extras** (macOS 26+, Apple Silicon): **Summarize text**
+  and **Save with AI-suggested name…**, powered by the on-device model
+
+`build.sh` weak-links the newer system frameworks, so the app still builds and
+launches on older macOS — the extras simply stay hidden until the OS supports
+them.
+
 ## Notes & limitations
 
 - When built with the macOS 26+ SDK, the floating toolbar and actions render as
   Liquid Glass pills; on older SDKs / macOS they fall back to a frosted material.
   Either way the app still runs on macOS 13+.
 
-- The hotkey is fixed to Ctrl+Shift+5 in `Sources/SnapMark/HotKeyManager.swift`
-  (change `kVK_ANSI_5` / the modifiers and rebuild to customize).
+- The hotkeys are fixed to Ctrl+Shift+5 / Ctrl+Shift+6 in `Sources/SnapMark/HotKeyManager.swift`
+  (change `kVK_ANSI_5` / `kVK_ANSI_6` and rebuild to customize).
 - Capture itself is done with the system `screencapture` tool, so quality and the
   selection UI match macOS exactly.
 - v1 has no scrolling capture — the natural next feature if you want it.

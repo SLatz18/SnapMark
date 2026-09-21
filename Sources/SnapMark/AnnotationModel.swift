@@ -106,6 +106,7 @@ private struct CanvasState {
 
 private enum HistoryEntry {
     case added(Annotation)
+    case addedMany([Annotation])
     case removed(Annotation, index: Int)
     case cropped(before: CanvasState, after: CanvasState)
 }
@@ -213,6 +214,9 @@ final class AnnotationDocument: ObservableObject {
         switch entry {
         case .added(let a):
             annotations.removeAll { $0.id == a.id }
+        case .addedMany(let many):
+            let ids = Set(many.map(\.id))
+            annotations.removeAll { ids.contains($0.id) }
         case .removed(let a, let idx):
             annotations.insert(a, at: min(idx, annotations.count))
         case .cropped(let before, _):
@@ -228,6 +232,8 @@ final class AnnotationDocument: ObservableObject {
         switch entry {
         case .added(let a):
             annotations.append(a)
+        case .addedMany(let many):
+            annotations.append(contentsOf: many)
         case .removed(let a, _):
             annotations.removeAll { $0.id == a.id }
         case .cropped(_, let after):
@@ -259,6 +265,30 @@ final class AnnotationDocument: ObservableObject {
     func cancelPendingText() {
         pendingTextPoint = nil
         pendingTextImagePoint = nil
+    }
+
+    // MARK: - On-device AI
+
+    /// CGImage of the base image for Vision requests.
+    func cgImageForAI() -> CGImage? { baseImage }
+
+    /// Adds blur annotations over the given rects (image-point space, top-left
+    /// origin) as a single undo step. Used by face / PII auto-redaction.
+    func redact(rects: [CGRect]) {
+        let bounds = CGRect(origin: .zero, size: imageSize)
+        var made: [Annotation] = []
+        for rect in rects {
+            let r = rect.intersection(bounds)
+            guard r.width >= 4, r.height >= 4,
+                  let patch = AnnotationRenderer.pixellatedPatch(of: baseImage, rect: r) else { continue }
+            made.append(Annotation(kind: .blur(rect: r, patch: patch),
+                                   color: color, width: 0))
+        }
+        guard !made.isEmpty else { return }
+        annotations.append(contentsOf: made)
+        undoStack.append(.addedMany(made))
+        redoStack.removeAll()
+        syncHistoryFlags()
     }
 
     // MARK: Export
@@ -327,10 +357,14 @@ final class AnnotationDocument: ObservableObject {
     }
 
     func saveToFile() {
+        saveToFile(nameField: suggestedFileName())
+    }
+
+    func saveToFile(nameField: String) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.canCreateDirectories = true
-        panel.nameFieldStringValue = suggestedFileName()
+        panel.nameFieldStringValue = nameField
         panel.directoryURL = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url, let png = self?.pngData() else { return }

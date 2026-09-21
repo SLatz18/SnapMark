@@ -12,6 +12,9 @@ struct SnapMarkApp: App {
             Button("Capture Region  (⌃⇧5)") {
                 appState.captureRegion()
             }
+            Button("OCR Region to Clipboard  (⌃⇧6)") {
+                appState.captureOCR()
+            }
             Divider()
             Button("Close All Pins") {
                 appState.closeAllPins()
@@ -45,6 +48,7 @@ final class AppState: ObservableObject {
 
     init() {
         hotKeys.onHotKey = { [weak self] in self?.captureRegion() }
+        hotKeys.onOCRHotKey = { [weak self] in self?.captureOCR() }
         hotKeys.register()
     }
 
@@ -69,8 +73,42 @@ final class AppState: ObservableObject {
         }
     }
 
-    func openEditor(with image: NSImage, metadata: ScreenshotMetadata) {
-        let document = AnnotationDocument(image: image, metadata: metadata)
+    /// Captures a region, runs on-device OCR, and copies the text to the
+    /// clipboard — no editor involved.
+    func captureOCR() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.captureOCR() }
+            return
+        }
+        guard !capturing else { return }
+        capturing = true
+        Task {
+            defer { capturing = false }
+            guard CGPreflightScreenCaptureAccess() else {
+                showPermissionAlert()
+                return
+            }
+            guard let image = await ScreenshotService.captureRegion() else { return }
+            var rect = CGRect(origin: .zero, size: image.size)
+            guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else { return }
+            do {
+                let text = try await LocalAI.plainText(in: cg)
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    OCRToast.show("No text found in that region.")
+                } else {
+                    let pb = NSPasteboard.general
+                    pb.clearContents()
+                    pb.setString(trimmed, forType: .string)
+                    OCRToast.show("Copied \(trimmed.count) characters to the clipboard.")
+                }
+            } catch {
+                OCRToast.show("Couldn't read text from that region.")
+            }
+        }
+    }
+
+    func openEditor(with image: NSImage, metadata: ScreenshotMetadata) {        let document = AnnotationDocument(image: image, metadata: metadata)
         let window = NSWindow(
             contentRect: EditorWindowSizing.frame(for: image),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
@@ -144,6 +182,8 @@ final class AppState: ObservableObject {
 
 struct SettingsView: View {
     @AppStorage("launchAtLogin") private var launchAtLogin = false
+    @AppStorage("aiDetectQR") private var aiDetectQR = true
+    @AppStorage("translateTargetLang") private var translateLang = "es"
     @StateObject private var stamp = StampSettingsStore()
     @StateObject private var drive = DriveUploader.shared
     @State private var driveError: String?
@@ -222,6 +262,25 @@ struct SettingsView: View {
                 Toggle("Make uploaded links public", isOn: $drive.makePublic)
             }
 
+            Section("On-device AI") {
+                Text("OCR, QR codes, face detection and PII redaction run on your Mac via Apple Vision — no network, no accounts. Press Ctrl+Shift+6 anywhere to OCR a region straight to the clipboard.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("Detect QR codes in the editor", isOn: $aiDetectQR)
+                #if canImport(Translation)
+                if #available(macOS 15, *) {
+                    Picker("Translate target language", selection: $translateLang) {
+                        ForEach(LocalTranslate.commonLanguages, id: \.id) { lang in
+                            Text(lang.label).tag(lang.id)
+                        }
+                    }
+                }
+                #endif
+                Text(aiStatusLine())
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("General") {
                 Toggle("Launch at login", isOn: Binding(
                     get: { launchAtLogin },
@@ -270,6 +329,97 @@ struct SettingsView: View {
             }
             .frame(height: 148)
             .cornerRadius(6)
+        }
+    }
+
+    private func aiStatusLine() -> String {
+        var parts = ["Apple Vision (OCR, QR codes, faces): available"]
+        #if canImport(FoundationModels)
+        if #available(macOS 26, *) {
+            parts.append("Apple Intelligence: " +
+                (SmartText.isAvailable() ? "available"
+                 : "not enabled — turn it on in System Settings"))
+        } else {
+            parts.append("Apple Intelligence: requires macOS 26")
+        }
+        #else
+        parts.append("Apple Intelligence: requires building with the macOS 26 SDK")
+        #endif
+        #if canImport(Translation)
+        if #available(macOS 15, *) {
+            parts.append("On-device translation: available")
+        } else {
+            parts.append("On-device translation: requires macOS 15")
+        }
+        #else
+        parts.append("On-device translation: requires building with the macOS 15 SDK")
+        #endif
+        return parts.joined(separator: "\n")
+    }
+}
+
+// MARK: - OCR toast
+
+/// Small auto-dismissing floating panel used by quick OCR (Ctrl+Shift+6).
+final class OCRToast {
+    static func show(_ message: String) {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 0),
+            styleMask: [.nonactivatingPanel, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.ignoresMouseEvents = true
+
+        let effect = NSVisualEffectView()
+        effect.material = .hudWindow
+        effect.blendingMode = .behindWindow
+        effect.state = .active
+        effect.wantsLayer = true
+        effect.layer?.cornerRadius = 12
+
+        let label = NSTextField(labelWithString: message)
+        label.font = .systemFont(ofSize: 13)
+        label.alignment = .center
+        label.maximumNumberOfLines = 3
+        label.translatesAutoresizingMaskIntoConstraints = false
+        effect.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 16),
+            label.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -16),
+            label.topAnchor.constraint(equalTo: effect.topAnchor, constant: 14),
+            label.bottomAnchor.constraint(equalTo: effect.bottomAnchor, constant: -14),
+        ])
+
+        // Size to fit the message.
+        effect.layoutSubtreeIfNeeded()
+        let fitting = effect.fittingSize
+        let height = max(52, fitting.height)
+        panel.contentView = effect
+        panel.setContentSize(NSSize(width: 400, height: height))
+
+        if let screen = NSScreen.main {
+            let frame = screen.visibleFrame
+            panel.setFrameOrigin(NSPoint(
+                x: frame.midX - 200,
+                y: frame.midY - height / 2
+            ))
+        }
+        panel.orderFrontRegardless()
+
+        // Fade out and close after a beat.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.35
+                panel.animator().alphaValue = 0
+            } completionHandler: {
+                panel.close()
+            }
         }
     }
 }

@@ -7,7 +7,19 @@ APP_NAME="SnapMark"
 APP_BUNDLE="dist/$APP_NAME.app"
 
 echo "Compiling…"
-swift build -c release
+# Weak-link frameworks that only exist in newer SDKs (Apple Intelligence needs
+# the macOS 26 SDK, on-device Translation the macOS 15 SDK) so the app still
+# launches on older macOS. The matching code is already guarded by
+# #if canImport + @available, so nothing breaks when they're absent.
+SDK_PATH="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
+WEAK_FLAGS=""
+for FW in FoundationModels Translation; do
+    if [ -n "$SDK_PATH" ] && [ -d "$SDK_PATH/System/Library/Frameworks/$FW.framework" ]; then
+        WEAK_FLAGS="$WEAK_FLAGS -Xlinker -weak_framework -Xlinker $FW"
+    fi
+done
+# shellcheck disable=SC2086
+swift build -c release $WEAK_FLAGS
 
 echo "Assembling $APP_BUNDLE…"
 rm -rf dist
