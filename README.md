@@ -39,8 +39,10 @@ hotkey API, which requires no extra permissions.
   (dims everything except a region), crop
 - Toggle **fill** for solid rectangles/ellipses
 - **Sketch style** — hand-drawn, pen-like wobble on shapes and arrows, marker font on text
-- **⌘C** copy PNG to clipboard · **⌘S** save PNG · **⌘Z / ⇧⌘Z** undo / redo ·
-  **Esc** close the editor
+- **⌘C** copy PNG to clipboard · **⌘S** save PNG · **⌘U** upload to Google Drive
+  and copy the share link · **⌘Z / ⇧⌘Z** undo / redo · **Esc** close the editor
+- Saved files are named `SnapMark_<site-or-app>_<timestamp>.png`, e.g.
+  `SnapMark_example.com_2026-09-21_08.44.20.png`
 - Blur permanently pixellates that part of the image — good for redacting API
   keys, names, addresses, etc.
 - Crop clears annotations (undo restores everything, including the crop)
@@ -50,10 +52,30 @@ hotkey API, which requires no extra permissions.
 - Every capture records **metadata**: date/time, macOS user, and the frontmost
   app at capture time — shown in the editor and embedded in saved PNGs
   (title/author/description/creation-time)
-- **URL imprint** — capture from Safari, Chrome, Edge, Brave, Arc, Opera or
-  Vivaldi and the page URL is stamped onto a caption bar on saved, copied and
-  pinned images (toggle in Settings); first use triggers the macOS Automation
-  permission prompt, which you must allow
+- **Metadata stamp** — a configurable badge burned onto saved, copied, pinned
+  and uploaded images. Toggle and reorder fields (username, app name, page URL,
+  date/time, custom text), pick the corner, size, and background opacity — with
+  a live preview in Settings. If you capture from Safari, Chrome, Edge, Brave,
+  Arc, Opera or Vivaldi but the URL can't be read (usually a denied Automation
+  permission), the editor shows a warning with a shortcut to fix it.
+
+## Google Drive upload
+
+The editor's **Upload** button (⌘U) uploads the annotated PNG to your Google
+Drive and copies the share link to the clipboard.
+
+One-time setup in **Settings → Google Drive**:
+
+1. In Google Cloud Console, create a **Desktop app** OAuth client
+   (APIs & Services → Credentials).
+2. Paste the client ID into SnapMark Settings.
+3. Click **Connect Google Drive** and sign in — the refresh token is stored in
+   your Keychain, the client ID in app preferences, nothing else.
+4. Optionally paste a Drive folder URL or ID to upload into that folder, and
+   choose whether uploaded links are public (anyone with the link) or private
+   to you.
+
+The app only ever sees files it created itself (`drive.file` scope).
 
 ## Notes & limitations
 
@@ -65,5 +87,4 @@ hotkey API, which requires no extra permissions.
   (change `kVK_ANSI_5` / the modifiers and rebuild to customize).
 - Capture itself is done with the system `screencapture` tool, so quality and the
   selection UI match macOS exactly.
-- v1 has no scrolling capture or cloud upload — those are the natural next
-  features if you want them.
+- v1 has no scrolling capture — the natural next feature if you want it.

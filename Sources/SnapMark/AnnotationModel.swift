@@ -265,9 +265,7 @@ final class AnnotationDocument: ObservableObject {
 
     func renderedImage() -> NSImage {
         let size = imageSize
-        let barH = urlBarHeight(for: size)
-        let image = NSImage(size: CGSize(width: size.width, height: size.height + barH),
-                            flipped: true)
+        let image = NSImage(size: size, flipped: true)
         image.lockFocus()
         if let ctx = NSGraphicsContext.current?.cgContext {
             AnnotationRenderer.draw(base: baseImage,
@@ -279,55 +277,36 @@ final class AnnotationDocument: ObservableObject {
                                     sketch: sketchStyle,
                                     in: ctx,
                                     bounds: CGRect(origin: .zero, size: size))
-            if barH > 0, let url = metadata.pageURL, !url.isEmpty {
-                drawURLBar(url, in: ctx, imageSize: size, barHeight: barH)
-            }
+            // Burn the configured metadata stamp onto saved/copied/pinned output.
+            StampRenderer.drawStamp(StampSettings.load(), metadata: metadata,
+                                    in: ctx, imageSize: size)
         }
         image.unlockFocus()
         return image
     }
 
-    /// Height of the imprinted URL caption bar (0 when disabled or no URL).
-    /// Toggle lives in Settings ("Imprint browser URL on screenshots").
-    private func urlBarHeight(for size: CGSize) -> CGFloat {
-        let enabled = UserDefaults.standard.object(forKey: "imprintPageURL") as? Bool ?? true
-        guard enabled, let url = metadata.pageURL, !url.isEmpty else { return 0 }
-        return max(48, size.width * 0.05)
+    /// True when the stamp is on, its Page URL field is on, the capture came
+    /// from a supported browser, but no URL could be read — almost always a
+    /// denied Automation permission. The editor surfaces this as a warning.
+    var urlCaptureWarningNeeded: Bool {
+        let settings = StampSettings.load()
+        return settings.enabled
+            && settings.isFieldEnabled(.pageURL)
+            && metadata.urlCaptureAttempted
+            && (metadata.pageURL?.isEmpty ?? true)
     }
 
-    /// Stamps the page URL onto a dark caption bar appended below the image.
-    /// Called inside a flipped lockFocus context (origin top-left).
-    private func drawURLBar(_ url: String, in ctx: CGContext,
-                           imageSize size: CGSize, barHeight barH: CGFloat) {
-        let barRect = CGRect(x: 0, y: size.height, width: size.width, height: barH)
-        ctx.setFillColor(NSColor(white: 0.09, alpha: 1).cgColor)
-        ctx.fill(barRect)
-        // Hairline separator.
-        ctx.setFillColor(NSColor.white.withAlphaComponent(0.14).cgColor)
-        ctx.fill(CGRect(x: 0, y: size.height, width: size.width, height: max(1, barH * 0.025)))
-
-        let font = NSFont.systemFont(ofSize: barH * 0.36, weight: .medium)
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: NSColor(white: 1, alpha: 0.92),
-        ]
-        let padX = barH * 0.35
-        var display = url
-        let maxW = size.width - padX * 2
-        while (display as NSString).size(withAttributes: attrs).width > maxW,
-              display.count > 8 {
-            display = String(display.dropLast(8)) + "…"
-        }
-        let textH = (display as NSString).size(withAttributes: attrs).height
-        (display as NSString).draw(
-            at: CGPoint(x: padX, y: size.height + (barH - textH) / 2),
-            withAttributes: attrs
-        )
+    /// e.g. "SnapMark_example.com_2026-09-21_08.44.20.png".
+    func suggestedFileName() -> String {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd_HH.mm.ss"
+        return "SnapMark_\(metadata.fileSourceName)_\(fmt.string(from: metadata.capturedAt)).png"
     }
 
     /// PNG data with the capture metadata embedded as tEXt chunks
     /// (title, author, description, creation time) via ImageIO.
-    private func pngData() -> Data? {
+    /// Internal so the editor can hand it to the Drive uploader.
+    func pngData() -> Data? {
         let image = renderedImage()
         var rect = CGRect(origin: .zero, size: image.size)
         guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else { return nil }
@@ -351,9 +330,7 @@ final class AnnotationDocument: ObservableObject {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.canCreateDirectories = true
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        panel.nameFieldStringValue = "SnapMark \(fmt.string(from: metadata.capturedAt)).png"
+        panel.nameFieldStringValue = suggestedFileName()
         panel.directoryURL = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url, let png = self?.pngData() else { return }

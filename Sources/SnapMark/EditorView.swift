@@ -8,6 +8,10 @@ struct EditorView: View {
     let onPin: (NSImage) -> Void
     @State private var textBuffer = ""
     @FocusState private var textFieldFocused: Bool
+    @StateObject private var drive = DriveUploader.shared
+    @State private var isUploading = false
+    @State private var uploadNotice: String?
+    @State private var uploadError: String?
 
     var body: some View {
         ZStack {
@@ -37,8 +41,24 @@ struct EditorView: View {
             }
 
             // Capture metadata, bottom-left.
-            VStack(spacing: 0) {
+            VStack(spacing: 8) {
                 Spacer(minLength: 0)
+                if document.urlCaptureWarningNeeded {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.yellow)
+                        Text("Couldn't read the browser URL — SnapMark needs Automation permission.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Open Settings") { openAutomationSettings() }
+                            .buttonStyle(.borderless)
+                            .font(.caption)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .modifier(FloatingPill())
+                    .padding(.leading, 12)
+                }
                 HStack(spacing: 0) {
                     Text(document.metadata.summaryLine)
                         .font(.caption)
@@ -199,10 +219,71 @@ struct EditorView: View {
                 .keyboardShortcut("s", modifiers: .command)
                 .help("Save PNG (⌘S)")
                 .buttonStyle(.borderless)
+            uploadButton
+            if let notice = uploadNotice {
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .modifier(FloatingPill())
+    }
+
+    // MARK: - Drive upload
+
+    private var uploadButton: some View {
+        Button {
+            Task { await uploadScreenshot() }
+        } label: {
+            if isUploading {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 22, height: 22)
+            } else {
+                Label("Upload", systemImage: "icloud.and.arrow.up")
+            }
+        }
+        .disabled(isUploading || !drive.isConfigured)
+        .help(drive.isConfigured
+              ? "Upload to Google Drive and copy the share link (⌘U)"
+              : "Set your Google OAuth client ID in Settings to enable uploads")
+        .keyboardShortcut("u", modifiers: .command)
+        .buttonStyle(.borderless)
+        .alert("Upload failed",
+               isPresented: Binding(get: { uploadError != nil },
+                                    set: { if !$0 { uploadError = nil } }),
+               actions: { Button("OK", role: .cancel) {} },
+               message: { Text(uploadError ?? "") })
+    }
+
+    private func uploadScreenshot() async {
+        guard let png = document.pngData() else { return }
+        isUploading = true
+        defer { isUploading = false }
+        do {
+            let link = try await drive.upload(
+                pngData: png,
+                filename: document.suggestedFileName(),
+                description: document.metadata.driveDescription)
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(link, forType: .string)
+            uploadNotice = "Link copied to clipboard"
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            uploadNotice = nil
+        } catch {
+            uploadError = (error as? LocalizedError)?.errorDescription
+                ?? error.localizedDescription
+        }
+    }
+
+    private func openAutomationSettings() {
+        if let url = URL(string:
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     // MARK: - Text overlay

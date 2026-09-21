@@ -16,17 +16,19 @@ enum BrowserURLCapture {
         "company.thebrowser.Browser", // Arc
     ]
 
+    static func isSupportedBrowser(bundleID: String?) -> Bool {
+        guard let bundleID else { return false }
+        return bundleID == "com.apple.Safari" || chromiumIDs.contains(bundleID)
+    }
+
     static func activePageURL() -> String? {
-        guard let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else {
-            return nil
-        }
+        let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        guard isSupportedBrowser(bundleID: bundleID) else { return nil }
         let source: String
         if bundleID == "com.apple.Safari" {
             source = #"tell application "Safari" to get URL of front document"#
-        } else if chromiumIDs.contains(bundleID) {
-            source = #"tell application id "\#(bundleID)" to get URL of active tab of front window"#
         } else {
-            return nil
+            source = #"tell application id "\#(bundleID!)" to get URL of active tab of front window"#
         }
         var error: NSDictionary?
         guard let script = NSAppleScript(source: source) else { return nil }

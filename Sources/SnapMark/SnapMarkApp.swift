@@ -144,35 +144,132 @@ final class AppState: ObservableObject {
 
 struct SettingsView: View {
     @AppStorage("launchAtLogin") private var launchAtLogin = false
-    @AppStorage("imprintPageURL") private var imprintPageURL = true
+    @StateObject private var stamp = StampSettingsStore()
+    @StateObject private var drive = DriveUploader.shared
+    @State private var driveError: String?
 
     var body: some View {
         Form {
-            Toggle("Launch at login", isOn: Binding(
-                get: { launchAtLogin },
-                set: { newValue in
-                    do {
-                        if newValue {
-                            try SMAppService.mainApp.register()
-                        } else {
-                            try SMAppService.mainApp.unregister()
+            Section("Metadata stamp") {
+                Toggle("Imprint stamp on screenshots", isOn: $stamp.settings.enabled)
+                if stamp.settings.enabled {
+                    fieldsList
+                    if stamp.settings.isFieldEnabled(.customText) {
+                        TextField("Custom text", text: $stamp.settings.customText)
+                    }
+                    Picker("Position", selection: $stamp.settings.position) {
+                        ForEach(StampPosition.allCases, id: \.self) { position in
+                            Text(position.label).tag(position)
                         }
-                        launchAtLogin = newValue
-                    } catch {
-                        // Leave the toggle off if registration failed
-                        // (works best when SnapMark is in /Applications).
+                    }
+                    .pickerStyle(.segmented)
+                    Picker("Size", selection: $stamp.settings.size) {
+                        ForEach(StampSize.allCases, id: \.self) { size in
+                            Text(size.label).tag(size)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    HStack {
+                        Text("Background")
+                        Slider(value: $stamp.settings.backgroundOpacity, in: 0.2...1)
+                    }
+                    Toggle("Show full timezone", isOn: $stamp.settings.showFullTimezone)
+                    Image(nsImage: StampRenderer.previewImage(settings: stamp.settings))
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .cornerRadius(6)
+                    Text("The stamp is burned onto saved, copied, pinned and uploaded images.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Google Drive") {
+                Text("Upload screenshots and copy a share link. Create a Desktop OAuth client in Google Cloud Console, then paste its client ID here.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("OAuth client ID", text: $drive.clientID)
+                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    if drive.isConnected {
+                        Label("Connected", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Spacer()
+                        Button("Disconnect") { drive.disconnect() }
+                    } else {
+                        Button(drive.isWorking ? "Connecting…" : "Connect Google Drive") {
+                            driveError = nil
+                            Task {
+                                do {
+                                    try await drive.connect()
+                                } catch {
+                                    driveError = (error as? LocalizedError)?.errorDescription
+                                        ?? error.localizedDescription
+                                }
+                            }
+                        }
+                        .disabled(drive.isWorking
+                            || drive.clientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
-            ))
-            Toggle("Imprint browser URL on screenshots", isOn: $imprintPageURL)
-            Text("When you capture from Safari, Chrome, Edge, Brave, Arc, Opera or Vivaldi, the page URL is stamped onto saved, copied and pinned images. First use asks for Automation permission.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text("Press Ctrl+Shift+5 anywhere to capture a region.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                if let error = driveError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+                TextField("Drive folder URL or ID (optional)", text: $drive.folderInput)
+                    .textFieldStyle(.roundedBorder)
+                Toggle("Make uploaded links public", isOn: $drive.makePublic)
+            }
+
+            Section("General") {
+                Toggle("Launch at login", isOn: Binding(
+                    get: { launchAtLogin },
+                    set: { newValue in
+                        do {
+                            if newValue {
+                                try SMAppService.mainApp.register()
+                            } else {
+                                try SMAppService.mainApp.unregister()
+                            }
+                            launchAtLogin = newValue
+                        } catch {
+                            // Leave the toggle off if registration failed
+                            // (works best when SnapMark is in /Applications).
+                        }
+                    }
+                ))
+                Text("Press Ctrl+Shift+5 anywhere to capture a region.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
+        .formStyle(.grouped)
         .padding()
-        .frame(width: 320)
+        .frame(width: 420)
+    }
+
+    private var fieldsList: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Fields")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                EditButton()
+                    .font(.caption)
+            }
+            List {
+                ForEach($stamp.settings.fields) { $fieldSetting in
+                    Toggle($fieldSetting.wrappedValue.field.label,
+                           isOn: $fieldSetting.enabled)
+                }
+                .onMove { offsets, destination in
+                    stamp.settings.fields.move(fromOffsets: offsets, toOffset: destination)
+                }
+            }
+            .frame(height: 148)
+            .cornerRadius(6)
+        }
     }
 }
