@@ -13,6 +13,11 @@ struct SnapMarkApp: App {
                 appState.captureRegion()
             }
             Divider()
+            Button("Close All Pins") {
+                appState.closeAllPins()
+            }
+            .disabled(appState.pinCount == 0)
+            Divider()
             SettingsLink()
             Button("Screen Recording Permissions…") {
                 appState.openScreenRecordingSettings()
@@ -33,7 +38,10 @@ struct SnapMarkApp: App {
 final class AppState: ObservableObject {
     private let hotKeys = HotKeyManager.shared
     private var editorWindows: [NSWindow] = []
+    private var pinControllers: [PinWindowController] = []
     private var capturing = false
+
+    @Published private(set) var pinCount = 0
 
     init() {
         hotKeys.onHotKey = { [weak self] in self?.captureRegion() }
@@ -48,6 +56,8 @@ final class AppState: ObservableObject {
         }
         guard !capturing else { return }
         capturing = true
+        // Grab who/when/where now, before the system capture UI takes over.
+        let metadata = ScreenshotMetadata.capture()
         Task {
             defer { capturing = false }
             guard CGPreflightScreenCaptureAccess() else {
@@ -55,12 +65,12 @@ final class AppState: ObservableObject {
                 return
             }
             guard let image = await ScreenshotService.captureRegion() else { return }
-            openEditor(with: image)
+            openEditor(with: image, metadata: metadata)
         }
     }
 
-    func openEditor(with image: NSImage) {
-        let document = AnnotationDocument(image: image)
+    func openEditor(with image: NSImage, metadata: ScreenshotMetadata) {
+        let document = AnnotationDocument(image: image, metadata: metadata)
         let window = NSWindow(
             contentRect: EditorWindowSizing.frame(for: image),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
@@ -68,7 +78,13 @@ final class AppState: ObservableObject {
             defer: false
         )
         window.title = "SnapMark"
-        window.contentView = NSHostingView(rootView: EditorView(document: document))
+        window.contentView = NSHostingView(rootView: EditorView(
+            document: document,
+            onPin: { [weak self, weak window] image in
+                self?.pinImage(image)
+                window?.close()
+            }
+        ))
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -87,6 +103,26 @@ final class AppState: ObservableObject {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    // MARK: - Pins
+
+    func pinImage(_ image: NSImage) {
+        let controller = PinWindowController(image: image)
+        controller.onClose = { [weak self, weak controller] in
+            guard let self, let controller else { return }
+            self.pinControllers.removeAll { $0 === controller }
+            self.pinCount = self.pinControllers.count
+        }
+        pinControllers.append(controller)
+        pinCount = pinControllers.count
+    }
+
+    func closeAllPins() {
+        let controllers = pinControllers
+        pinControllers.removeAll()
+        pinCount = 0
+        controllers.forEach { $0.close() }
     }
 
     private func showPermissionAlert() {

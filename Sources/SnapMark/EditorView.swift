@@ -3,6 +3,9 @@ import AppKit
 
 struct EditorView: View {
     @ObservedObject var document: AnnotationDocument
+    /// Called with the fully rendered image; the host pins it to the screen
+    /// and closes this editor window.
+    let onPin: (NSImage) -> Void
     @State private var textBuffer = ""
     @FocusState private var textFieldFocused: Bool
 
@@ -30,6 +33,22 @@ struct EditorView: View {
                     floatingActions
                         .padding(.trailing, 12)
                         .padding(.bottom, 12)
+                }
+            }
+
+            // Capture metadata, bottom-left.
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                HStack(spacing: 0) {
+                    Text(document.metadata.summaryLine)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .modifier(FloatingPill())
+                        .padding(.leading, 12)
+                        .padding(.bottom, 12)
+                    Spacer(minLength: 0)
                 }
             }
 
@@ -167,6 +186,11 @@ struct EditorView: View {
                     .buttonStyle(.borderless)
                 Divider().frame(height: 20)
             }
+            Button { onPin(document.renderedImage()) } label: {
+                Label("Pin", systemImage: "pin")
+            }
+            .help("Pin to screen — floats above all windows")
+            .buttonStyle(.borderless)
             Button("Copy") { document.copyToClipboard() }
                 .keyboardShortcut("c", modifiers: .command)
                 .help("Copy PNG to clipboard (⌘C)")

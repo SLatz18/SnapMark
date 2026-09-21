@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import CoreGraphics
+import ImageIO
 import UniformTypeIdentifiers
 
 // MARK: - Tools
@@ -128,6 +129,9 @@ final class AnnotationDocument: ObservableObject {
     @Published private(set) var canUndo = false
     @Published private(set) var canRedo = false
 
+    /// Capture-time metadata (date/time, user, frontmost app). Never changes.
+    let metadata: ScreenshotMetadata
+
     // Transient drawing state, driven by the canvas view (it calls
     // needsDisplay directly, so these don't need to be published).
     var draftShape: Annotation?
@@ -143,12 +147,13 @@ final class AnnotationDocument: ObservableObject {
         CGSize(width: baseImage.width, height: baseImage.height)
     }
 
-    init(image: NSImage) {
+    init(image: NSImage, metadata: ScreenshotMetadata) {
         var rect = CGRect(origin: .zero, size: image.size)
         guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else {
             fatalError("SnapMark: could not convert screenshot to CGImage")
         }
         self.baseImage = cg
+        self.metadata = metadata
     }
 
     // MARK: Mutations
@@ -277,11 +282,19 @@ final class AnnotationDocument: ObservableObject {
         return image
     }
 
+    /// PNG data with the capture metadata embedded as tEXt chunks
+    /// (title, author, description, creation time) via ImageIO.
     private func pngData() -> Data? {
         let image = renderedImage()
-        guard let tiff = image.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff) else { return nil }
-        return rep.representation(using: .png, properties: [:])
+        var rect = CGRect(origin: .zero, size: image.size)
+        guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else { return nil }
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(
+            data as CFMutableData, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        let props = [kCGImagePropertyPNGDictionary as String: metadata.pngProperties] as CFDictionary
+        CGImageDestinationAddImage(dest, cg, props)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return data as Data
     }
 
     func copyToClipboard() {
@@ -297,7 +310,7 @@ final class AnnotationDocument: ObservableObject {
         panel.canCreateDirectories = true
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        panel.nameFieldStringValue = "SnapMark \(fmt.string(from: Date())).png"
+        panel.nameFieldStringValue = "SnapMark \(fmt.string(from: metadata.capturedAt)).png"
         panel.directoryURL = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url, let png = self?.pngData() else { return }

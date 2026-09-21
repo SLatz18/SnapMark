@@ -44,6 +44,12 @@ hotkey API, which requires no extra permissions.
 - Blur permanently pixellates that part of the image — good for redacting API
   keys, names, addresses, etc.
 - Crop clears annotations (undo restores everything, including the crop)
+- **Pin to screen** — float the screenshot above all windows; drag to move,
+  drag edges to resize, hover for the close button; close them all from the
+  menu bar
+- Every capture records **metadata**: date/time, macOS user, and the frontmost
+  app at capture time — shown in the editor and embedded in saved PNGs
+  (title/author/description/creation-time)
 
 ## Notes & limitations
 
