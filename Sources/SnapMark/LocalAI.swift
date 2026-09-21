@@ -73,7 +73,12 @@ enum LocalAI {
     /// Boxes are merged and generously padded — redaction errs on the side
     /// of covering too much rather than too little.
     static func detectSensitiveRegions(in cgImage: CGImage) async throws -> [CGRect] {
-        let lines = try await recognizeText(in: cgImage)
+        sensitiveBoxes(in: try await recognizeText(in: cgImage))
+    }
+
+    /// Pure PII logic over OCR lines — no image needed, so unit tests can
+    /// drive it directly.
+    static func sensitiveBoxes(in lines: [TextLine]) -> [CGRect] {
         var boxes: [CGRect] = []
         for line in lines {
             boxes += regexBoxes(in: line)
@@ -85,7 +90,7 @@ enum LocalAI {
     // MARK: - Plumbing
 
     /// Runs a Vision request off the main thread.
-    private static func perform(_ request: VNRequest,
+    static func perform(_ request: VNRequest,
                                on cgImage: CGImage) async throws -> [VNObservation] {
         try await Task.detached(priority: .userInitiated) {
             let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
@@ -96,7 +101,7 @@ enum LocalAI {
 
     /// Vision normalized boxes use a bottom-left origin; convert to
     /// top-left-origin pixel rects.
-    private static func denormalize(_ r: CGRect, width w: CGFloat,
+    static func denormalize(_ r: CGRect, width w: CGFloat,
                                    height h: CGFloat) -> CGRect {
         CGRect(x: r.minX * w,
                y: (1 - r.maxY) * h,
@@ -106,12 +111,12 @@ enum LocalAI {
 
     // MARK: - PII patterns
 
-    private struct PIIPattern {
+    struct PIIPattern {
         var regex: String
         var isValid: (String) -> Bool = { _ in true }
     }
 
-    private static let piiPatterns: [PIIPattern] = [
+    static let piiPatterns: [PIIPattern] = [
         // Email addresses.
         PIIPattern(regex: #"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#),
         // Phone numbers: needs 10+ digits, or an explicit + / ( area code,
@@ -126,7 +131,7 @@ enum LocalAI {
         PIIPattern(regex: #"\b(sk-[A-Za-z0-9_\-]{16,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{16,}|xox[bpas]-[A-Za-z0-9\-]{8,}|AIza[0-9A-Za-z_\-]{35})\b"#),
     ]
 
-    private static func isCardNumber(_ s: String) -> Bool {
+    static func isCardNumber(_ s: String) -> Bool {
         let digits = s.filter(\.isNumber)
         guard (13...19).contains(digits.count) else { return false }
         var sum = 0
@@ -141,7 +146,7 @@ enum LocalAI {
         return sum % 10 == 0
     }
 
-    private static func regexBoxes(in line: TextLine) -> [CGRect] {
+    static func regexBoxes(in line: TextLine) -> [CGRect] {
         var boxes: [CGRect] = []
         let ns = line.text as NSString
         for pattern in piiPatterns {
@@ -158,7 +163,7 @@ enum LocalAI {
     }
 
     /// Finds person names with on-device NER and maps them back to line boxes.
-    private static func nameBoxes(in lines: [TextLine]) -> [CGRect] {
+    static func nameBoxes(in lines: [TextLine]) -> [CGRect] {
         let fullText = lines.map(\.text).joined(separator: "\n")
         guard !fullText.isEmpty else { return [] }
         // Character offsets of each line within fullText.
@@ -191,7 +196,7 @@ enum LocalAI {
 
     /// Approximates a substring's box as a proportional slice of its line,
     /// padded generously — safe for redaction.
-    private static func estimatedBox(for range: NSRange, in line: TextLine) -> CGRect {
+    static func estimatedBox(for range: NSRange, in line: TextLine) -> CGRect {
         let total = max((line.text as NSString).length, 1)
         let x0 = line.box.minX + line.box.width * CGFloat(range.location) / CGFloat(total)
         let x1 = line.box.minX + line.box.width * CGFloat(range.location + range.length) / CGFloat(total)
@@ -202,7 +207,7 @@ enum LocalAI {
                       height: line.box.height + pad * 2)
     }
 
-    private static func mergeOverlapping(_ rects: [CGRect]) -> [CGRect] {
+    static func mergeOverlapping(_ rects: [CGRect]) -> [CGRect] {
         var result: [CGRect] = []
         for rect in rects {
             var merged = rect

@@ -47,7 +47,7 @@ enum SmartText {
     }
 
     /// Keeps whatever the model returned filesystem-safe.
-    private static func sanitize(_ raw: String) -> String {
+    static func sanitize(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         let parts = trimmed.components(separatedBy: allowed.inverted).filter { !$0.isEmpty }

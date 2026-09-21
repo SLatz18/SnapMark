@@ -15,11 +15,28 @@ pen, highlighter, blur-to-redact, and crop. Copy to clipboard or save a PNG.
 ./build.sh
 ```
 
-This compiles the app and creates `dist/SnapMark.app` (ad-hoc signed).
-Drag it to `/Applications`, then launch it. SnapMark lives in the menu bar —
-there's no dock icon.
+This runs the **dev checks**, compiles the app, and creates
+`dist/SnapMark.app` (ad-hoc signed). Drag it to `/Applications`, then launch
+it. SnapMark lives in the menu bar — there's no dock icon.
 
 > For "Launch at login" to work reliably, keep SnapMark in `/Applications`.
+
+### Dev checks & logs
+
+Every build runs three checks automatically:
+
+1. **Static audit** (`tools/audit.py`) — verifies Apple-Intelligence/Translation
+   code is properly availability-guarded, `#if/#endif` and brackets balance,
+   and flags risky `try!`/`fatalError` calls. No SDK needed.
+2. **`swift build`** — full compile.
+3. **`swift test`** — unit tests for the PII redaction logic (Luhn, email/phone/
+   card/API-key/name detection), Drive folder-URL parsing, stamp settings
+   save/load, and filename generation. Skip with `SKIP_TESTS=1 ./build.sh`.
+
+All output is saved to `dist/logs/build-<timestamp>.log` and
+`dist/logs/test-<timestamp>.log`, starting with your macOS/Xcode/Swift/SDK
+versions. If a check fails, the script points you at the exact log file —
+send that file to Bell and he'll fix it.
 
 ## Permissions
 
