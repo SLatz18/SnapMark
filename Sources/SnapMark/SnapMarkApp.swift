@@ -144,6 +144,7 @@ final class AppState: ObservableObject {
 
 struct SettingsView: View {
     @AppStorage("launchAtLogin") private var launchAtLogin = false
+    @AppStorage("imprintPageURL") private var imprintPageURL = true
 
     var body: some View {
         Form {
@@ -163,6 +164,10 @@ struct SettingsView: View {
                     }
                 }
             ))
+            Toggle("Imprint browser URL on screenshots", isOn: $imprintPageURL)
+            Text("When you capture from Safari, Chrome, Edge, Brave, Arc, Opera or Vivaldi, the page URL is stamped onto saved, copied and pinned images. First use asks for Automation permission.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             Text("Press Ctrl+Shift+5 anywhere to capture a region.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

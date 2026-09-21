@@ -265,7 +265,9 @@ final class AnnotationDocument: ObservableObject {
 
     func renderedImage() -> NSImage {
         let size = imageSize
-        let image = NSImage(size: size, flipped: true)
+        let barH = urlBarHeight(for: size)
+        let image = NSImage(size: CGSize(width: size.width, height: size.height + barH),
+                            flipped: true)
         image.lockFocus()
         if let ctx = NSGraphicsContext.current?.cgContext {
             AnnotationRenderer.draw(base: baseImage,
@@ -277,9 +279,50 @@ final class AnnotationDocument: ObservableObject {
                                     sketch: sketchStyle,
                                     in: ctx,
                                     bounds: CGRect(origin: .zero, size: size))
+            if barH > 0, let url = metadata.pageURL, !url.isEmpty {
+                drawURLBar(url, in: ctx, imageSize: size, barHeight: barH)
+            }
         }
         image.unlockFocus()
         return image
+    }
+
+    /// Height of the imprinted URL caption bar (0 when disabled or no URL).
+    /// Toggle lives in Settings ("Imprint browser URL on screenshots").
+    private func urlBarHeight(for size: CGSize) -> CGFloat {
+        let enabled = UserDefaults.standard.object(forKey: "imprintPageURL") as? Bool ?? true
+        guard enabled, let url = metadata.pageURL, !url.isEmpty else { return 0 }
+        return max(48, size.width * 0.05)
+    }
+
+    /// Stamps the page URL onto a dark caption bar appended below the image.
+    /// Called inside a flipped lockFocus context (origin top-left).
+    private func drawURLBar(_ url: String, in ctx: CGContext,
+                           imageSize size: CGSize, barHeight barH: CGFloat) {
+        let barRect = CGRect(x: 0, y: size.height, width: size.width, height: barH)
+        ctx.setFillColor(NSColor(white: 0.09, alpha: 1).cgColor)
+        ctx.fill(barRect)
+        // Hairline separator.
+        ctx.setFillColor(NSColor.white.withAlphaComponent(0.14).cgColor)
+        ctx.fill(CGRect(x: 0, y: size.height, width: size.width, height: max(1, barH * 0.025)))
+
+        let font = NSFont.systemFont(ofSize: barH * 0.36, weight: .medium)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor(white: 1, alpha: 0.92),
+        ]
+        let padX = barH * 0.35
+        var display = url
+        let maxW = size.width - padX * 2
+        while (display as NSString).size(withAttributes: attrs).width > maxW,
+              display.count > 8 {
+            display = String(display.dropLast(8)) + "…"
+        }
+        let textH = (display as NSString).size(withAttributes: attrs).height
+        (display as NSString).draw(
+            at: CGPoint(x: padX, y: size.height + (barH - textH) / 2),
+            withAttributes: attrs
+        )
     }
 
     /// PNG data with the capture metadata embedded as tEXt chunks

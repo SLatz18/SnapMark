@@ -50,6 +50,10 @@ hotkey API, which requires no extra permissions.
 - Every capture records **metadata**: date/time, macOS user, and the frontmost
   app at capture time — shown in the editor and embedded in saved PNGs
   (title/author/description/creation-time)
+- **URL imprint** — capture from Safari, Chrome, Edge, Brave, Arc, Opera or
+  Vivaldi and the page URL is stamped onto a caption bar on saved, copied and
+  pinned images (toggle in Settings); first use triggers the macOS Automation
+  permission prompt, which you must allow
 
 ## Notes & limitations
 

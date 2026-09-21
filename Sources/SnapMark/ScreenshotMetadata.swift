@@ -13,6 +13,7 @@ struct ScreenshotMetadata {
     var frontAppName: String?     // frontmost app when captured, e.g. "Safari"
     var frontAppBundleID: String? // e.g. "com.apple.Safari"
     var hostName: String?
+    var pageURL: String?          // active browser tab URL, when captured from a browser
 
     /// Grabs "now + who + where". Call on the main thread at capture time,
     /// before the system capture UI takes over the screen.
@@ -24,18 +25,22 @@ struct ScreenshotMetadata {
             fullUserName: NSFullUserName(),
             frontAppName: front?.localizedName,
             frontAppBundleID: front?.bundleIdentifier,
-            hostName: Host.current().localizedName
+            hostName: Host.current().localizedName,
+            pageURL: BrowserURLCapture.activePageURL()
         )
     }
 
     /// One-line summary for the editor, e.g.
-    /// "Sep 21, 2026, 8:30 AM · slatz18 · Safari".
+    /// "Sep 21, 2026, 8:30 AM · slatz18 · Safari · example.com/…".
     var summaryLine: String {
         let fmt = DateFormatter()
         fmt.dateStyle = .medium
         fmt.timeStyle = .short
         var parts = [fmt.string(from: capturedAt), userName]
         if let app = frontAppName { parts.append(app) }
+        if let url = pageURL {
+            parts.append(url.count > 64 ? String(url.prefix(61)) + "..." : url)
+        }
         return parts.joined(separator: " · ")
     }
 
@@ -49,6 +54,7 @@ struct ScreenshotMetadata {
             description += " in \(app)"
             if let bid = frontAppBundleID { description += " (\(bid))" }
         }
+        if let url = pageURL { description += " — \(url)" }
         return [
             kCGImagePropertyPNGTitle as String: "SnapMark Screenshot",
             kCGImagePropertyPNGAuthor as String: author,
