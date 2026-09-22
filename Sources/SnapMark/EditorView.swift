@@ -183,15 +183,13 @@ struct EditorView: View {
             }
             .help("Line width")
 
-            Button {
-                document.sketchStyle.toggle()
-            } label: {
-                Image(systemName: "scribble")
-                    .frame(width: 22, height: 22)
-                    .foregroundStyle(document.sketchStyle ? Color.accentColor : .primary)
+            Picker("Style", selection: $document.sketchStyle) {
+                Text("Sketch").tag(true)
+                Text("Clean").tag(false)
             }
-            .buttonStyle(.plain)
-            .help("Hand-drawn style")
+            .pickerStyle(.segmented)
+            .frame(width: 128)
+            .help("Sketch: Excalidraw-style hand-drawn look. Clean: crisp tldraw-style look.")
 
             Menu {
                 Picker("Stroke style", selection: $document.strokeStyle) {
