@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 // MARK: - Tools
 
 enum Tool: String, CaseIterable, Identifiable {
-    case arrow, line, rect, ellipse, text, pen, highlighter
+    case select, arrow, line, rect, ellipse, diamond, text, pen, highlighter
     case counter, eraser, pipette
     case blur, spotlight, crop
 
@@ -15,10 +15,12 @@ enum Tool: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
+        case .select: return "Select"
         case .arrow: return "Arrow"
         case .line: return "Line"
         case .rect: return "Rectangle"
         case .ellipse: return "Ellipse"
+        case .diamond: return "Diamond"
         case .text: return "Text"
         case .pen: return "Pen"
         case .highlighter: return "Highlighter"
@@ -33,10 +35,12 @@ enum Tool: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
+        case .select: return "cursor.arrow"
         case .arrow: return "arrow.up.right"
         case .line: return "line.diagonal"
         case .rect: return "rectangle"
         case .ellipse: return "ellipse"
+        case .diamond: return "diamond"
         case .text: return "textformat"
         case .pen: return "pencil"
         case .highlighter: return "highlighter"
@@ -46,6 +50,37 @@ enum Tool: String, CaseIterable, Identifiable {
         case .blur: return "eye.slash"
         case .spotlight: return "flashlight.on.fill"
         case .crop: return "crop"
+        }
+    }
+}
+
+// MARK: - Stroke & fill styles (Excalidraw-inspired)
+
+enum StrokeStyle: String, CaseIterable, Identifiable {
+    case solid, dashed, dotted
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .solid: return "Solid"
+        case .dashed: return "Dashed"
+        case .dotted: return "Dotted"
+        }
+    }
+}
+
+enum FillStyle: String, CaseIterable, Identifiable {
+    case none, solid, hachure, crossHatch
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .none: return "None"
+        case .solid: return "Solid"
+        case .hachure: return "Hachure"
+        case .crossHatch: return "Cross-hatch"
         }
     }
 }
@@ -82,6 +117,7 @@ struct Annotation: Identifiable {
         case line(from: CGPoint, to: CGPoint)
         case rect(CGRect, filled: Bool)
         case ellipse(CGRect, filled: Bool)
+        case diamond(CGRect, filled: Bool)
         case text(at: CGPoint, string: String)
         case pen(points: [CGPoint])
         case highlight(points: [CGPoint])
@@ -95,6 +131,113 @@ struct Annotation: Identifiable {
     var color: MarkColor
     var width: CGFloat      // line width, in image pixels
     var fontSize: CGFloat = 24
+    var strokeStyle: StrokeStyle = .solid
+    var fillStyle: FillStyle = .none
+
+    /// Blur and spotlight bake image content, so moving them would show the
+    /// wrong pixels — they're erased, never selected.
+    var isTransformable: Bool {
+        switch kind {
+        case .blur, .spotlight: return false
+        default: return true
+        }
+    }
+
+    /// Tight-ish box around the annotation, image-pixel space.
+    func boundingBox(sketch: Bool) -> CGRect {
+        switch kind {
+        case .arrow(let f, let t), .line(let f, let t):
+            let pad = width / 2 + 3
+            return CGRect(from: f, to: t).insetBy(dx: -pad, dy: -pad)
+        case .rect(let r, _), .ellipse(let r, _), .diamond(let r, _):
+            return r.insetBy(dx: -3, dy: -3)
+        case .text:
+            return AnnotationRenderer.textBox(for: self, sketch: sketch)
+        case .pen(let pts), .highlight(let pts):
+            guard let first = pts.first else { return .zero }
+            var box = CGRect(origin: first, size: .zero)
+            for p in pts.dropFirst() { box = box.union(CGRect(origin: p, size: .zero)) }
+            let pad = width / 2 + 2
+            return box.insetBy(dx: -pad, dy: -pad)
+        case .counter(let at, _):
+            return CGRect(x: at.x - 17, y: at.y - 17, width: 34, height: 34)
+        case .blur(let r, _), .spotlight(let r):
+            return r
+        }
+    }
+
+    /// Returns a copy translated by `delta`.
+    func moved(by delta: CGPoint) -> Annotation {
+        var a = self
+        switch kind {
+        case .arrow(let f, let t):
+            a.kind = .arrow(from: f + delta, to: t + delta)
+        case .line(let f, let t):
+            a.kind = .line(from: f + delta, to: t + delta)
+        case .rect(let r, let filled):
+            a.kind = .rect(r.offsetBy(dx: delta.x, dy: delta.y), filled: filled)
+        case .ellipse(let r, let filled):
+            a.kind = .ellipse(r.offsetBy(dx: delta.x, dy: delta.y), filled: filled)
+        case .diamond(let r, let filled):
+            a.kind = .diamond(r.offsetBy(dx: delta.x, dy: delta.y), filled: filled)
+        case .text(let at, let s):
+            a.kind = .text(at: at + delta, string: s)
+        case .pen(let pts):
+            a.kind = .pen(points: pts.map { $0 + delta })
+        case .highlight(let pts):
+            a.kind = .highlight(points: pts.map { $0 + delta })
+        case .counter(let at, let n):
+            a.kind = .counter(at: at + delta, number: n)
+        case .blur(let r, let patch):
+            a.kind = .blur(rect: r.offsetBy(dx: delta.x, dy: delta.y), patch: patch)
+        case .spotlight(let r):
+            a.kind = .spotlight(rect: r.offsetBy(dx: delta.x, dy: delta.y))
+        }
+        return a
+    }
+
+    /// Returns a copy remapped from `oldBox` to `newBox` (resize). Degenerate
+    /// source boxes fall back to a pure translation.
+    func resized(from oldBox: CGRect, to newBox: CGRect) -> Annotation {
+        let sx: CGFloat = oldBox.width > 0.5 ? newBox.width / oldBox.width : 1
+        let sy: CGFloat = oldBox.height > 0.5 ? newBox.height / oldBox.height : 1
+        func map(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: newBox.minX + (p.x - oldBox.minX) * sx,
+                    y: newBox.minY + (p.y - oldBox.minY) * sy)
+        }
+        func mapRect(_ r: CGRect) -> CGRect {
+            let p1 = map(r.origin)
+            let p2 = map(CGPoint(x: r.maxX, y: r.maxY))
+            return CGRect(from: p1, to: p2)
+        }
+        var a = self
+        switch kind {
+        case .arrow(let f, let t):
+            a.kind = .arrow(from: map(f), to: map(t))
+        case .line(let f, let t):
+            a.kind = .line(from: map(f), to: map(t))
+        case .rect(let r, let filled):
+            a.kind = .rect(mapRect(r), filled: filled)
+        case .ellipse(let r, let filled):
+            a.kind = .ellipse(mapRect(r), filled: filled)
+        case .diamond(let r, let filled):
+            a.kind = .diamond(mapRect(r), filled: filled)
+        case .text(let at, let s):
+            a.kind = .text(at: map(at), string: s)
+            a.fontSize = min(400, max(8, fontSize * sx))
+        case .pen(let pts):
+            a.kind = .pen(points: pts.map(map))
+        case .highlight(let pts):
+            a.kind = .highlight(points: pts.map(map))
+        case .counter(let at, let n):
+            a.kind = .counter(at: map(at), number: n)
+        case .blur(let r, let patch):
+            a.kind = .blur(rect: mapRect(r), patch: patch)
+        case .spotlight(let r):
+            a.kind = .spotlight(rect: mapRect(r))
+        }
+        return a
+    }
 }
 
 // MARK: - History
@@ -108,6 +251,8 @@ private enum HistoryEntry {
     case added(Annotation)
     case addedMany([Annotation])
     case removed(Annotation, index: Int)
+    case removedMany([(annotation: Annotation, index: Int)])
+    case transformed([(id: UUID, before: Annotation, after: Annotation)])
     case cropped(before: CanvasState, after: CanvasState)
 }
 
@@ -118,13 +263,15 @@ private enum HistoryEntry {
 final class AnnotationDocument: ObservableObject {
     @Published var baseImage: CGImage
     @Published var annotations: [Annotation] = []
-    @Published var tool: Tool = .arrow
+    @Published var tool: Tool = .select
     @Published var color: MarkColor = MarkColor.palette[0]
     @Published var customColor: MarkColor?
     @Published var lineWidth: CGFloat = 4
     @Published var fontSize: CGFloat = 24
-    @Published var fillShapes = false
-    @Published var sketchStyle = false
+    @Published var strokeStyle: StrokeStyle = .solid
+    @Published var fillStyle: FillStyle = .none
+    @Published var sketchStyle = true
+    @Published var selection: Set<UUID> = []
     @Published var pendingTextPoint: CGPoint?   // view coords, for the text field overlay
     @Published var draftCropRect: CGRect?
     @Published private(set) var canUndo = false
@@ -140,6 +287,9 @@ final class AnnotationDocument: ObservableObject {
     var draftSpotlightRect: CGRect?
     var dragStart: CGPoint?
     var pendingTextImagePoint: CGPoint?
+    var marqueeRect: CGRect?          // image-pixel space, select tool only
+    var textEditTarget: UUID?         // when set, the text overlay edits this annotation
+    var textEditInitial = ""
 
     private var undoStack: [HistoryEntry] = []
     private var redoStack: [HistoryEntry] = []
@@ -170,6 +320,7 @@ final class AnnotationDocument: ObservableObject {
         guard let hit = AnnotationRenderer.hitTest(annotations, at: point, sketch: sketchStyle),
               let idx = annotations.firstIndex(where: { $0.id == hit.id }) else { return }
         let removed = annotations.remove(at: idx)
+        selection.remove(removed.id)
         undoStack.append(.removed(removed, index: idx))
         redoStack.removeAll()
         syncHistoryFlags()
@@ -197,6 +348,7 @@ final class AnnotationDocument: ObservableObject {
         let before = CanvasState(base: baseImage, annotations: annotations)
         baseImage = cropped
         annotations = []
+        selection.removeAll()
         let after = CanvasState(base: baseImage, annotations: annotations)
         undoStack.append(.cropped(before: before, after: after))
         redoStack.removeAll()
@@ -214,14 +366,27 @@ final class AnnotationDocument: ObservableObject {
         switch entry {
         case .added(let a):
             annotations.removeAll { $0.id == a.id }
+            selection.remove(a.id)
         case .addedMany(let many):
             let ids = Set(many.map(\.id))
             annotations.removeAll { ids.contains($0.id) }
+            selection.subtract(ids)
         case .removed(let a, let idx):
             annotations.insert(a, at: min(idx, annotations.count))
+        case .removedMany(let pairs):
+            for pair in pairs.sorted(by: { $0.index < $1.index }) {
+                annotations.insert(pair.annotation, at: min(pair.index, annotations.count))
+            }
+        case .transformed(let pairs):
+            for (id, before, _) in pairs {
+                if let idx = annotations.firstIndex(where: { $0.id == id }) {
+                    annotations[idx] = before
+                }
+            }
         case .cropped(let before, _):
             baseImage = before.base
             annotations = before.annotations
+            selection.removeAll()
         }
         redoStack.append(entry)
         syncHistoryFlags()
@@ -236,9 +401,21 @@ final class AnnotationDocument: ObservableObject {
             annotations.append(contentsOf: many)
         case .removed(let a, _):
             annotations.removeAll { $0.id == a.id }
+            selection.remove(a.id)
+        case .removedMany(let pairs):
+            let ids = Set(pairs.map(\.annotation.id))
+            annotations.removeAll { ids.contains($0.id) }
+            selection.subtract(ids)
+        case .transformed(let pairs):
+            for (id, _, after) in pairs {
+                if let idx = annotations.firstIndex(where: { $0.id == id }) {
+                    annotations[idx] = after
+                }
+            }
         case .cropped(_, let after):
             baseImage = after.base
             annotations = after.annotations
+            selection.removeAll()
         }
         undoStack.append(entry)
         syncHistoryFlags()
@@ -249,15 +426,117 @@ final class AnnotationDocument: ObservableObject {
         canRedo = !redoStack.isEmpty
     }
 
+    // MARK: - Selection & transforms (Excalidraw-style)
+
+    /// Union box of the current selection, image-pixel space.
+    func selectionBox() -> CGRect? {
+        let boxes = annotations
+            .filter { selection.contains($0.id) }
+            .map { $0.boundingBox(sketch: sketchStyle) }
+        guard let first = boxes.first else { return nil }
+        return boxes.dropFirst().reduce(first) { $0.union($1) }
+    }
+
+    func selectAll() {
+        selection = Set(annotations.filter(\.isTransformable).map(\.id))
+    }
+
+    func selectInRect(_ rect: CGRect, additive: Bool) {
+        let sketch = sketchStyle
+        let ids = Set(annotations
+            .filter { $0.isTransformable && $0.boundingBox(sketch: sketch).intersects(rect) }
+            .map(\.id))
+        selection = additive ? selection.union(ids) : ids
+    }
+
+    func deleteSelection() {
+        let targets = selection
+        guard !targets.isEmpty else { return }
+        var removed: [(annotation: Annotation, index: Int)] = []
+        for (i, a) in annotations.enumerated() where targets.contains(a.id) {
+            removed.append((annotation: a, index: i))
+        }
+        annotations.removeAll { targets.contains($0.id) }
+        selection.removeAll()
+        undoStack.append(.removedMany(removed))
+        redoStack.removeAll()
+        syncHistoryFlags()
+    }
+
+    /// Snapshot the given annotations before a drag; the canvas maps every
+    /// drag update from this snapshot so there's no error accumulation.
+    func snapshotForTransform(ids: Set<UUID>) -> [UUID: Annotation] {
+        var snap: [UUID: Annotation] = [:]
+        for a in annotations where ids.contains(a.id) { snap[a.id] = a }
+        return snap
+    }
+
+    func applyMove(snapshot: [UUID: Annotation], delta: CGPoint) {
+        for (id, before) in snapshot {
+            if let idx = annotations.firstIndex(where: { $0.id == id }) {
+                annotations[idx] = before.moved(by: delta)
+            }
+        }
+    }
+
+    func applyResize(snapshot: [UUID: Annotation], from oldBox: CGRect, to newBox: CGRect) {
+        for (id, before) in snapshot {
+            if let idx = annotations.firstIndex(where: { $0.id == id }) {
+                annotations[idx] = before.resized(from: oldBox, to: newBox)
+            }
+        }
+    }
+
+    /// Pushes a single undo entry for a finished move/resize drag.
+    func commitTransform(snapshot: [UUID: Annotation]) {
+        var pairs: [(id: UUID, before: Annotation, after: Annotation)] = []
+        for (id, before) in snapshot {
+            if let after = annotations.first(where: { $0.id == id }) {
+                pairs.append((id: id, before: before, after: after))
+            }
+        }
+        guard !pairs.isEmpty else { return }
+        undoStack.append(.transformed(pairs))
+        redoStack.removeAll()
+        syncHistoryFlags()
+    }
+
+    func updateText(id: UUID, string: String) {
+        guard let idx = annotations.firstIndex(where: { $0.id == id }) else { return }
+        var a = annotations[idx]
+        guard case .text(let at, _) = a.kind else { return }
+        let before = a
+        a.kind = .text(at: at, string: string)
+        annotations[idx] = a
+        undoStack.append(.transformed([(id: id, before: before, after: a)]))
+        redoStack.removeAll()
+        syncHistoryFlags()
+    }
+
+    func startTextEdit(_ a: Annotation, viewPoint: CGPoint, imagePoint: CGPoint) {
+        guard case .text(_, let s) = a.kind else { return }
+        textEditTarget = a.id
+        textEditInitial = s
+        pendingTextImagePoint = imagePoint
+        pendingTextPoint = viewPoint
+    }
+
     // MARK: Text
 
     func commitPendingText(_ string: String) {
+        let target = textEditTarget
         defer {
             pendingTextPoint = nil
             pendingTextImagePoint = nil
+            textEditTarget = nil
+            textEditInitial = ""
         }
-        guard let at = pendingTextImagePoint,
-              !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if let id = target {
+            updateText(id: id, string: string)
+            return
+        }
+        guard let at = pendingTextImagePoint else { return }
         addAnnotation(Annotation(kind: .text(at: at, string: string),
                                  color: color, width: lineWidth, fontSize: fontSize))
     }
@@ -265,6 +544,8 @@ final class AnnotationDocument: ObservableObject {
     func cancelPendingText() {
         pendingTextPoint = nil
         pendingTextImagePoint = nil
+        textEditTarget = nil
+        textEditInitial = ""
     }
 
     // MARK: - On-device AI
@@ -388,5 +669,9 @@ extension CGPoint {
     func clamped(to size: CGSize) -> CGPoint {
         CGPoint(x: min(max(x, 0), size.width),
                 y: min(max(y, 0), size.height))
+    }
+
+    static func + (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
+        CGPoint(x: lhs.x + rhs.x, y: lhs.y + rhs.y)
     }
 }

@@ -51,12 +51,17 @@ hotkey API, which requires no extra permissions.
 
 - **Ctrl+Shift+5** — capture a region (native crosshair UI; Esc cancels)
 - **Ctrl+Shift+6** — OCR a region straight to the clipboard
-- Annotate with the floating toolbar: arrow, line, rectangle, ellipse, text, pen,
-  highlighter, **counter badges** (numbered steps), eraser, **color picker**
+- Annotate with the floating toolbar: arrow, line, rectangle, ellipse, **diamond**,
+  text, pen, highlighter, **counter badges** (numbered steps), eraser, **color picker**
   (eyedropper — click the screenshot to use any color), blur, **spotlight**
   (dims everything except a region), crop
-- Toggle **fill** for solid rectangles/ellipses
-- **Sketch style** — hand-drawn, pen-like wobble on shapes and arrows, marker font on text
+- **Excalidraw-style editing**: the select tool (default) lets you click to select,
+  ⇧-click or drag a marquee for multi-select, drag to move, drag corner handles to
+  resize, double-click text to edit it in place, ⌫ to delete, ⌘A to select all —
+  every move/resize/edit is undoable
+- **Hand-drawn look** (on by default): wobbly sketch strokes, Marker Felt text, plus
+  Excalidraw-style **stroke styles** (solid / dashed / dotted) and **fill styles**
+  (none / solid / hachure / cross-hatch) for shapes
 - **⌘C** copy PNG to clipboard · **⌘S** save PNG · **⌘U** upload to Google Drive
   and copy the share link · **⌘Z / ⇧⌘Z** undo / redo · **Esc** close the editor
 - Saved files are named `SnapMark_<site-or-app>_<timestamp>.png`, e.g.

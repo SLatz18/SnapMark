@@ -184,16 +184,6 @@ struct EditorView: View {
             .help("Line width")
 
             Button {
-                document.fillShapes.toggle()
-            } label: {
-                Image(systemName: document.fillShapes ? "square.fill" : "square")
-                    .frame(width: 22, height: 22)
-                    .foregroundStyle(document.fillShapes ? Color.accentColor : .primary)
-            }
-            .buttonStyle(.plain)
-            .help("Fill shapes")
-
-            Button {
                 document.sketchStyle.toggle()
             } label: {
                 Image(systemName: "scribble")
@@ -202,6 +192,35 @@ struct EditorView: View {
             }
             .buttonStyle(.plain)
             .help("Hand-drawn style")
+
+            Menu {
+                Picker("Stroke style", selection: $document.strokeStyle) {
+                    ForEach(StrokeStyle.allCases) { s in
+                        Text(s.label).tag(s)
+                    }
+                }
+            } label: {
+                Text(document.strokeStyle.label)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .frame(minWidth: 44)
+            }
+            .help("Stroke style: solid, dashed, dotted")
+            .menuStyle(.borderlessButton)
+
+            Menu {
+                Picker("Fill style", selection: $document.fillStyle) {
+                    ForEach(FillStyle.allCases) { s in
+                        Text(s.label).tag(s)
+                    }
+                }
+            } label: {
+                Text("Fill: \(document.fillStyle.label)")
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+            }
+            .help("Shape fill: none, solid, hachure, cross-hatch")
+            .menuStyle(.borderlessButton)
 
             Divider().frame(height: 20)
 
@@ -541,7 +560,7 @@ struct EditorView: View {
         .position(x: (document.pendingTextPoint?.x ?? 0) + 122,
                   y: (document.pendingTextPoint?.y ?? 0) + 16)
         .focused($textFieldFocused)
-        .onAppear { textBuffer = ""; textFieldFocused = true }
+        .onAppear { textBuffer = document.textEditInitial; textFieldFocused = true }
         .onExitCommand { document.cancelPendingText() }
     }
 }
